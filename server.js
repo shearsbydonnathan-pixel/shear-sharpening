@@ -83,7 +83,7 @@ app.post("/appointments", async (req, res) => {
 
   const id = `APT-${Date.now()}`;
   const appointment = {
-    id, name, phone, email, salon,
+    id, name, phone, email, salon, salonAddress,
     shears: shears || "Not specified",
     notes: notes || "",
     date, time,
