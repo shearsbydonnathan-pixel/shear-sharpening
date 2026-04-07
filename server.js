@@ -59,7 +59,7 @@ async function sendSMS(to, body) {
 // ─── Routes ───────────────────────────────────────────────────────────────────
 
 // Health check
-app.get("/", (req, res) => res.sendFile(path.join(__dirname, 'index.html')).
+app.get("/", (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
 // ── POST /appointments — Client submits a booking request ────────────────────
 app.post("/appointments", async (req, res) => {
   const { name, phone, email, salon, shears, notes, date, time } = req.body;
