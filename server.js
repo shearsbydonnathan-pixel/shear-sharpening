@@ -62,7 +62,7 @@ async function sendSMS(to, body) {
 app.get("/", (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
 // ── POST /appointments — Client submits a booking request ────────────────────
 app.post("/appointments", async (req, res) => {
-  const { name, phone, email, salon, shears, notes, date, time } = req.body;
+ const { clientName: name, clientPhone: phone, salonName: salon, salonAddress, shearCount: shears, notes, date, time } = req.body;
 
   if (!name || !phone || !date || !time) {
     return res.status(400).json({ error: "Missing required fields: name, phone, date, time" });
