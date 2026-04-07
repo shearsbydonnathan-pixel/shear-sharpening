@@ -311,6 +311,14 @@
         <input type="tel" id="clientPhone" placeholder="+1 (000) 000-0000" autocomplete="tel"/>
       </div>
       <div class="form-group">
+        <label>SALON NAME</label>
+        <input type="text" id="salonName" placeholder="Your salon name" autocomplete="organization"/>
+      </div>
+      <div class="form-group">
+        <label>SALON ADDRESS</label>
+        <input type="text" id="salonAddress" placeholder="123 Main St, City, State" autocomplete="street-address"/>
+      </div>
+      <div class="form-group">
         <label>HOW MANY SHEARS? (OPTIONAL)</label>
         <input type="number" id="shearCount" placeholder="e.g. 3" min="1" autocomplete="off"/>
       </div>
@@ -474,6 +482,8 @@
   async function submitBooking() {
     const name  = document.getElementById('clientName').value.trim();
     const phone = document.getElementById('clientPhone').value.trim();
+    const salonName = document.getElementById('salonName').value.trim();
+    const salonAddress = document.getElementById('salonAddress').value.trim();
     const shearCount = document.getElementById('shearCount').value.trim();
     const date  = document.getElementById('prefDate').value;
     const time  = document.getElementById('prefTime').value === 'custom'
@@ -490,7 +500,7 @@
       const res = await fetch('/appointments', {
         method: 'POST',
         headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({clientName:name, clientPhone:phone, service: shearCount ? `${shearCount} shears` : 'Shear Sharpening', date, time, notes})
+        body: JSON.stringify({clientName:name, clientPhone:phone, salonName, salonAddress, shearCount, date, time, notes})
       });
       const data = await res.json();
       if (data.success) {
@@ -498,6 +508,8 @@
         msg.textContent = '✓ Appointment requested! You will receive a confirmation text shortly.';
         document.getElementById('clientName').value = '';
         document.getElementById('clientPhone').value = '';
+        document.getElementById('salonName').value = '';
+        document.getElementById('salonAddress').value = '';
         document.getElementById('shearCount').value = '';
         document.getElementById('prefDate').value = '';
         document.getElementById('prefTime').value = '';
