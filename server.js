@@ -1,4 +1,4 @@
-github.dev/shearsbydonnathan-pixel/shear-sharpeninggithub.dev/shearsbydonnathan-pixel/shear-sharpening/**
+
  * Shear Sharpening by Don Nathan
  * Backend Server - Twilio SMS + Appointment Management + Email
  *
