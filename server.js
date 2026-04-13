@@ -82,7 +82,7 @@ async function sendBookingEmail(appt) {
   to: process.env.GMAIL_USER,
   reply_to: appt.clientEmail,
  text: `NEW APPOINTMENT REQUEST\n\nClient: ${appt.name}\nEmail: ${appt.clientEmail}\nPhone: ${appt.phone}\nSalon: ${appt.salon}\nAddress: ${appt.salonAddress}\nDate: ${appt.date}\nTime: ${appt.time}`,
-  
+  });
     console.log("📧 Booking email sent.");
   } catch (err) {
     console.error("❌ Email failed:", err.message);
