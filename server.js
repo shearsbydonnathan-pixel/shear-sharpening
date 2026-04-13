@@ -80,7 +80,7 @@ async function sendBookingEmail(appt) {
     await resend.emails.send({
   from: 'onboarding@resend.dev',
   to: process.env.GMAIL_USER,
-
+subject: `New Booking - ${appt.name}`,
  text: `NEW APPOINTMENT REQUEST\n\nClient: ${appt.name}\nEmail: ${appt.clientEmail}\nPhone: ${appt.phone}\nSalon: ${appt.salon}\nAddress: ${appt.salonAddress}\nDate: ${appt.date}\nTime: ${appt.time}`,
   });
     console.log("📧 Booking email sent.");
