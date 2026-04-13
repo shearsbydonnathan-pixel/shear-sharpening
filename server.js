@@ -72,24 +72,17 @@ function saveData(data) {
 }
 
 // — Email helper ————————————————————————————————————————
-const transporter = nodemailer.createTransport({
-  host: "smtp.gmail.com",
-port: 465,
-secure: true,
-  auth: {
-    user: process.env.GMAIL_USER,
-    pass: process.env.GMAIL_PASS,
-  },
-});
+const { Resend } = require('resend');
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 async function sendBookingEmail(appt) {
   try {
-    await transporter.sendMail({
-      from: process.env.GMAIL_USER,
-      to: process.env.GMAIL_USER,
-      subject: `📬 New Booking – ${appt.name}`,
-      text: `NEW APPOINTMENT REQUEST\n\nClient: ${appt.name}\nPhone:  ${appt.phone}\nSalon:  ${appt.salon || "Not given"}\nDate:   ${appt.date}\nTime:   ${appt.time} ET\nShears: ${appt.shears || "Not specified"}\nNotes:  ${appt.notes || "None"}\n\nApprove: ${appt.approveUrl}\nDecline: ${appt.declineUrl}`,
-    });
+    await resend.emails.send({
+  from: 'onboarding@resend.dev',
+  to: process.env.GMAIL_USER,
+  subject: `New Booking - ${appt.name}`,
+  text: `NEW APPOINTMENT REQUEST\n\nClient: ${appt.name}\nPhone: ${appt.phone}\nSalon: ${appt.salon}\nDate: ${appt.date}\nTime: ${appt.time}`,
+});
     console.log("📧 Booking email sent.");
   } catch (err) {
     console.error("❌ Email failed:", err.message);
