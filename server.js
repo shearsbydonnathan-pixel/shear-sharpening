@@ -1,9 +1,9 @@
-/**
+github.dev/shearsbydonnathan-pixel/shear-sharpeninggithub.dev/shearsbydonnathan-pixel/shear-sharpening/**
  * Shear Sharpening by Don Nathan
- * Backend Server — Twilio SMS + Appointment Management
- * 
+ * Backend Server - Twilio SMS + Appointment Management + Email
+ *
  * Run:  node server.js
- * Requires: npm install express twilio cors dotenv
+ * Requires: npm install express twilio cors dotenv nodemailer pg
  */
 
 require("dotenv").config();
@@ -12,42 +12,89 @@ const twilio = require("twilio");
 const cors = require("cors");
 const fs = require("fs");
 const path = require("path");
-const nodemailer = require('nodemailer');
-const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: process.env.GMAIL_USER,
-    pass: process.env.GMAIL_PASS,
-  },
-});
+const nodemailer = require("nodemailer");
+const { Pool } = require("pg");
 
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
-app.use(cors({ origin: '*' }));
-// ─── Config ───────────────────────────────────────────────────────────────────
+app.use(cors({ origin: "*" }));
+
+// — Config ————————————————————————————————————————
 const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID;
 const TWILIO_AUTH_TOKEN  = process.env.TWILIO_AUTH_TOKEN;
-const TWILIO_PHONE       = process.env.TWILIO_PHONE;       // Your Twilio number e.g. +15551234567
+const TWILIO_PHONE       = process.env.TWILIO_PHONE;
 const DON_PHONE          = process.env.DON_PHONE || "+14436947625";
-const APP_URL            = process.env.APP_URL ||  "https://empowering-surprise-production-d934.up.railway.app"
-const DATA_FILE          = path.join(__dirname, "appointments.json");
-const PORT               = process.env.PORT || 3001;
+const APP_URL            = process.env.APP_URL   || "https://empowering-surprise-production-d934.up.railway.app";
+const PORT               = process.env.PORT      || 3001;
+const ADMIN_KEY          = process.env.ADMIN_KEY;
 
 const client = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
 
-// ─── Data helpers ─────────────────────────────────────────────────────────────
+// — Database ————————————————————————————————————————
+let pool = null;
+if (process.env.DATABASE_URL) {
+  pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: { rejectUnauthorized: false },
+  });
+  // Create tables if they don't exist
+  pool.query(`
+    CREATE TABLE IF NOT EXISTS appointments (
+      id TEXT PRIMARY KEY,
+      name TEXT, phone TEXT, salon TEXT, salon_address TEXT,
+      shears TEXT, notes TEXT, date TEXT, time TEXT,
+      status TEXT DEFAULT 'pending',
+      submitted_at TIMESTAMPTZ DEFAULT NOW(),
+      approved_at TIMESTAMPTZ,
+      declined_at TIMESTAMPTZ
+    );
+    CREATE TABLE IF NOT EXISTS blocked_slots (
+      date TEXT, time TEXT, manually_blocked BOOLEAN DEFAULT false,
+      PRIMARY KEY (date, time)
+    );
+  `).catch(err => console.error("DB setup error:", err));
+}
+
+// — Data helpers (file fallback if no DB) ————————————————
+const DATA_FILE = path.join(__dirname, "appointments.json");
+
 function loadData() {
+  if (pool) return null; // using DB
   if (!fs.existsSync(DATA_FILE)) return { appointments: [], blockedSlots: [] };
   try { return JSON.parse(fs.readFileSync(DATA_FILE, "utf8")); }
   catch { return { appointments: [], blockedSlots: [] }; }
 }
 
 function saveData(data) {
+  if (pool) return; // using DB
   fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
 }
 
-// ─── SMS helper ───────────────────────────────────────────────────────────────
+// — Email helper ————————————————————————————————————————
+const transporter = nodemailer.createTransport({
+  service: "gmail",
+  auth: {
+    user: process.env.GMAIL_USER,
+    pass: process.env.GMAIL_PASS,
+  },
+});
+
+async function sendBookingEmail(appt) {
+  try {
+    await transporter.sendMail({
+      from: process.env.GMAIL_USER,
+      to: process.env.GMAIL_USER,
+      subject: `📬 New Booking – ${appt.name}`,
+      text: `NEW APPOINTMENT REQUEST\n\nClient: ${appt.name}\nPhone:  ${appt.phone}\nSalon:  ${appt.salon || "Not given"}\nDate:   ${appt.date}\nTime:   ${appt.time} ET\nShears: ${appt.shears || "Not specified"}\nNotes:  ${appt.notes || "None"}\n\nApprove: ${appt.approveUrl}\nDecline: ${appt.declineUrl}`,
+    });
+    console.log("📧 Booking email sent.");
+  } catch (err) {
+    console.error("❌ Email failed:", err.message);
+  }
+}
+
+// — SMS helper ————————————————————————————————————————
 async function sendSMS(to, body) {
   try {
     const msg = await client.messages.create({
@@ -61,66 +108,71 @@ async function sendSMS(to, body) {
     console.error(`❌ SMS failed to ${to}:`, err.message);
     return { success: false, error: err.message };
   }
-}// — Email helper ————————————————————————————
-async function sendBookingEmail(appt) {
-  try {
-    await transporter.sendMail({
-      from: process.env.GMAIL_USER,
-      to: process.env.GMAIL_USER,
-      subject: `📬 New Booking – ${appt.name}`,
-      text: `NEW APPOINTMENT REQUEST\n\nClient: ${appt.name}\nPhone:  ${appt.phone}\nSalon:  ${appt.salon || 'Not given'}\nDate:   ${appt.date}\nTime:   ${appt.time} ET\nShears: ${appt.shears || 'Not specified'}\nNotes:  ${appt.notes || 'None'}\n\nApprove: ${appt.approveUrl}\nDecline: ${appt.declineUrl}`,
-    });
-    console.log('📧 Booking email sent.');
-  } catch (err) {
-    console.error('❌ Email failed:', err);
-  }
 }
 
-// ─── Routes ───────────────────────────────────────────────────────────────────
+// — Routes ————————————————————————————————————————————
 
 // Health check
-app.get("/", (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
-// ── POST /appointments — Client submits a booking request ────────────────────
+app.get("/", (req, res) => res.sendFile(path.join(__dirname, "index.html")));
+
+// POST /appointments — Client submits a booking request
 app.post("/appointments", async (req, res) => {
- const { clientName: name, clientPhone: phone, salonName: salon, salonAddress, shearCount: shears, notes, date, time } = req.body;
+  const { clientName: name, clientPhone: phone, salonName: salon, salonAddress, shearCount: shears, notes, date, time } = req.body;
 
   if (!name || !phone || !date || !time) {
     return res.status(400).json({ error: "Missing required fields: name, phone, date, time" });
   }
 
-  const data = loadData();
+  const id = `APT-${Date.now()}`;
 
-  // Check if slot is already taken or blocked
-  const slotTaken = data.appointments.some(
-    (a) => a.date === date && a.time === time && a.status === "approved"
-  );
-  const slotBlocked = data.blockedSlots.some(
-    (s) => s.date === date && s.time === time
-  );
+  // Check if slot is taken or blocked
+  let slotTaken = false;
+  let slotBlocked = false;
+
+  if (pool) {
+    const taken = await pool.query(
+      "SELECT id FROM appointments WHERE date=$1 AND time=$2 AND status='approved'",
+      [date, time]
+    );
+    const blocked = await pool.query(
+      "SELECT date FROM blocked_slots WHERE date=$1 AND time=$2",
+      [date, time]
+    );
+    slotTaken = taken.rows.length > 0;
+    slotBlocked = blocked.rows.length > 0;
+  } else {
+    const data = loadData();
+    slotTaken = data.appointments.some(a => a.date === date && a.time === time && a.status === "approved");
+    slotBlocked = data.blockedSlots.some(s => s.date === date && s.time === time);
+  }
+
   if (slotTaken || slotBlocked) {
     return res.status(409).json({ error: "This time slot is no longer available. Please choose another." });
   }
 
-  const id = `APT-${Date.now()}`;
-  const appointment = {
-    id, name, phone, salon, salonAddress,
-    shears: shears || "Not specified",
-    notes: notes || "",
-    date, time,
-    status: "pending",
-    submittedAt: new Date().toISOString(),
-  };
+  const appointment = { id, name, phone, salon, salonAddress, shears: shears || "Not specified", notes: notes || "", date, time, status: "pending", submittedAt: new Date().toISOString() };
 
-  data.appointments.push(appointment);
-  saveData(data);
+  if (pool) {
+    await pool.query(
+      "INSERT INTO appointments (id,name,phone,salon,salon_address,shears,notes,date,time,status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
+      [id, name, phone, salon, salonAddress, shears || "Not specified", notes || "", date, time, "pending"]
+    );
+  } else {
+    const data = loadData();
+    data.appointments.push(appointment);
+    saveData(data);
+  }
 
-  // 1️⃣ Text Don Nathan with appointment details + approve/decline links
   const approveUrl = `${APP_URL}/appointments/${id}/approve`;
   const declineUrl = `${APP_URL}/appointments/${id}/decline`;
 
+  // Email Don
+  await sendBookingEmail({ ...appointment, approveUrl, declineUrl });
+
+  // SMS Don
   const donMsg =
-    `✂️ NEW APPOINTMENT REQUEST\n` +
-    `───────────────────\n` +
+    `🔔 NEW APPOINTMENT REQUEST\n` +
+    `——————————\n` +
     `Client: ${name}\n` +
     `Phone:  ${phone}\n` +
     `Salon:  ${salon || "Not given"}\n` +
@@ -128,156 +180,191 @@ app.post("/appointments", async (req, res) => {
     `Time:   ${time} (ET)\n` +
     `Shears: ${shears || "Not specified"}\n` +
     `Notes:  ${notes || "None"}\n` +
-    `───────────────────\n` +
+    `——————————\n` +
     `✅ APPROVE: ${approveUrl}\n` +
     `❌ DECLINE: ${declineUrl}`;
 
-     await sendSMS(DON_PHONE, donMsg);
-await sendBookingEmail({ ...appointment, approveUrl, declineUrl });
+  await sendSMS(DON_PHONE, donMsg);
 
-  // 2️⃣ Text client to confirm receipt
+  // SMS client
   const clientMsg =
     `Hi ${name}! Your shear sharpening request has been received.\n\n` +
     `📅 ${date} at ${time} (Eastern)\n` +
-    `💰 $40.00 per shear\n\n` +
+    `✂ $40.00 per shear\n\n` +
     `Don Nathan will confirm shortly. You'll receive another text with your confirmation.\n\n` +
     `Questions? Call/text Don: 443-694-7625\n` +
     `— Shear Sharpening by Don Nathan`;
 
   await sendSMS(phone, clientMsg);
 
-  res.json({ success: true, id, message: "Appointment request submitted. Texts sent!" });
+  res.json({ success: true, id, message: "Appointment request submitted!" });
 });
 
-// ── GET /appointments/:id/approve — Don taps link to approve ─────────────────
+// GET /appointments/:id/approve
 app.get("/appointments/:id/approve", async (req, res) => {
-  const data = loadData();
-  const apt = data.appointments.find((a) => a.id === req.params.id);
+  let apt;
+  if (pool) {
+    const result = await pool.query("SELECT * FROM appointments WHERE id=$1", [req.params.id]);
+    apt = result.rows[0];
+  } else {
+    const data = loadData();
+    apt = data.appointments.find(a => a.id === req.params.id);
+  }
 
   if (!apt) return res.status(404).send("Appointment not found.");
   if (apt.status !== "pending") return res.send(`Appointment already ${apt.status}.`);
 
-  apt.status = "approved";
-  apt.approvedAt = new Date().toISOString();
+  if (pool) {
+    await pool.query("UPDATE appointments SET status='approved', approved_at=NOW() WHERE id=$1", [req.params.id]);
+    await pool.query("INSERT INTO blocked_slots (date,time) VALUES ($1,$2) ON CONFLICT DO NOTHING", [apt.date, apt.time]);
+  } else {
+    const data = loadData();
+    const a = data.appointments.find(a => a.id === req.params.id);
+    a.status = "approved";
+    a.approvedAt = new Date().toISOString();
+    if (!data.blockedSlots.some(s => s.date === a.date && s.time === a.time)) {
+      data.blockedSlots.push({ date: a.date, time: a.time });
+    }
+    saveData(data);
+    apt = a;
+  }
 
-  // Block the slot so no one else can book it
-  data.blockedSlots.push({ date: apt.date, time: apt.time });
-  saveData(data);
-
-  // Text client — confirmed + calendar reminder
   const clientMsg =
-    `✅ CONFIRMED! Hi ${apt.name}, your shear sharpening appointment is confirmed!\n\n` +
+    `CONFIRMED! Hi ${apt.name}, your shear sharpening appointment is confirmed!\n\n` +
     `📅 ${apt.date}\n` +
-    `🕐 ${apt.time} (Eastern)\n` +
-    `💰 $40.00 per shear\n\n` +
-    `📲 This appointment has been added to your phone's calendar as a reminder.\n\n` +
+    `⏰ ${apt.time} (Eastern)\n` +
+    `✂ $40.00 per shear\n\n` +
+    `This appointment has been added to your phone's calendar as a reminder.\n\n` +
     `Thank you for choosing Shear Sharpening by Don Nathan!\n` +
     `Questions? 443-694-7625`;
 
   await sendSMS(apt.phone, clientMsg);
-
-  // Text Don — confirmation receipt
-  await sendSMS(DON_PHONE,
-    `✅ You approved ${apt.name}'s appointment.\n📅 ${apt.date} at ${apt.time}\n📞 ${apt.phone}`
-  );
+  await sendSMS(DON_PHONE, `✅ You approved ${apt.name}'s appointment.\n📅 ${apt.date} at ${apt.time}\n📱 ${apt.phone}`);
 
   res.send(`
     <html><body style="font-family:sans-serif;background:#000;color:#00e5cc;text-align:center;padding:40px">
-      <h2>✅ Appointment Approved!</h2>
-      <p><strong>${apt.name}</strong> — ${apt.date} at ${apt.time}</p>
-      <p>Confirmation text sent to ${apt.phone}</p>
-      <p style="color:#007a6e">Slot has been blocked for other clients.</p>
+    <h2>✅ Appointment Approved!</h2>
+    <p><strong>${apt.name}</strong> – ${apt.date} at ${apt.time}</p>
+    <p>Confirmation text sent to client.</p>
+    <p style="color:#007a6e">Slot has been blocked for other clients.</p>
     </body></html>
   `);
 });
 
-// ── GET /appointments/:id/decline — Don taps link to decline ─────────────────
+// GET /appointments/:id/decline
 app.get("/appointments/:id/decline", async (req, res) => {
-  const data = loadData();
-  const apt = data.appointments.find((a) => a.id === req.params.id);
+  let apt;
+  if (pool) {
+    const result = await pool.query("SELECT * FROM appointments WHERE id=$1", [req.params.id]);
+    apt = result.rows[0];
+  } else {
+    const data = loadData();
+    apt = data.appointments.find(a => a.id === req.params.id);
+  }
 
   if (!apt) return res.status(404).send("Appointment not found.");
   if (apt.status !== "pending") return res.send(`Appointment already ${apt.status}.`);
 
-  apt.status = "declined";
-  apt.declinedAt = new Date().toISOString();
-  saveData(data);
+  if (pool) {
+    await pool.query("UPDATE appointments SET status='declined', declined_at=NOW() WHERE id=$1", [req.params.id]);
+  } else {
+    const data = loadData();
+    const a = data.appointments.find(a => a.id === req.params.id);
+    a.status = "declined";
+    a.declinedAt = new Date().toISOString();
+    saveData(data);
+    apt = a;
+  }
 
-  // Text client — politely ask to rebook
   const clientMsg =
     `Hi ${apt.name}, we're sorry — that time is unavailable.\n\n` +
     `Please select a different date or time to book your shear sharpening appointment.\n\n` +
-    `Need an alternative time? Call or text Don directly at 443-694-7625.\n\n` +
+    `Need an alternative time? Call or text Don directly at 443-694-7625.\n` +
     `— Shear Sharpening by Don Nathan`;
 
   await sendSMS(apt.phone, clientMsg);
 
   res.send(`
     <html><body style="font-family:sans-serif;background:#000;color:#00e5cc;text-align:center;padding:40px">
-      <h2>❌ Appointment Declined</h2>
-      <p><strong>${apt.name}</strong> — ${apt.date} at ${apt.time}</p>
-      <p>Client has been notified to choose another time.</p>
+    <h2>❌ Appointment Declined</h2>
+    <p><strong>${apt.name}</strong> – ${apt.date} at ${apt.time}</p>
+    <p>Client has been notified to choose another time.</p>
     </body></html>
   `);
 });
 
-// ── GET /appointments — Admin: view all appointments ─────────────────────────
+// GET /appointments — Admin view
 app.get("/appointments", (req, res) => {
   const { adminKey } = req.query;
-  if (adminKey !== process.env.ADMIN_KEY) {
-    return res.status(401).json({ error: "Unauthorized" });
+  if (adminKey !== ADMIN_KEY) return res.status(401).json({ error: "Unauthorized" });
+  if (pool) {
+    pool.query("SELECT * FROM appointments ORDER BY submitted_at DESC")
+      .then(r => res.json(r.rows))
+      .catch(err => res.status(500).json({ error: err.message }));
+  } else {
+    const data = loadData();
+    res.json(data.appointments);
   }
-  const data = loadData();
-  res.json(data.appointments);
 });
 
-// ── GET /blocked-slots — Fetch blocked slots for the app ─────────────────────
+// GET /blocked-slots
 app.get("/blocked-slots", (req, res) => {
-  const data = loadData();
-  res.json(data.blockedSlots);
+  if (pool) {
+    pool.query("SELECT * FROM blocked_slots")
+      .then(r => res.json(r.rows))
+      .catch(err => res.status(500).json({ error: err.message }));
+  } else {
+    const data = loadData();
+    res.json(data.blockedSlots);
+  }
 });
 
-// ── POST /block-slot — Admin: manually block a slot ──────────────────────────
+// POST /block-slot — Admin manually block a slot
 app.post("/block-slot", (req, res) => {
   const { adminKey, date, time } = req.body;
-  if (adminKey !== process.env.ADMIN_KEY) {
-    return res.status(401).json({ error: "Unauthorized" });
+  if (adminKey !== ADMIN_KEY) return res.status(401).json({ error: "Unauthorized" });
+  if (pool) {
+    pool.query("INSERT INTO blocked_slots (date,time,manually_blocked) VALUES ($1,$2,true) ON CONFLICT DO NOTHING", [date, time])
+      .then(() => res.json({ success: true }))
+      .catch(err => res.status(500).json({ error: err.message }));
+  } else {
+    const data = loadData();
+    if (!data.blockedSlots.some(s => s.date === date && s.time === time)) {
+      data.blockedSlots.push({ date, time, manuallyBlocked: true });
+      saveData(data);
+    }
+    res.json({ success: true });
   }
-  const data = loadData();
-  if (!data.blockedSlots.some((s) => s.date === date && s.time === time)) {
-    data.blockedSlots.push({ date, time, manuallyBlocked: true });
-    saveData(data);
-  }
-  res.json({ success: true });
 });
 
-// ── DELETE /block-slot — Admin: unblock a slot ───────────────────────────────
+// DELETE /block-slot — Admin unblock a slot
 app.delete("/block-slot", (req, res) => {
   const { adminKey, date, time } = req.body;
-  if (adminKey !== process.env.ADMIN_KEY) {
-    return res.status(401).json({ error: "Unauthorized" });
+  if (adminKey !== ADMIN_KEY) return res.status(401).json({ error: "Unauthorized" });
+  if (pool) {
+    pool.query("DELETE FROM blocked_slots WHERE date=$1 AND time=$2", [date, time])
+      .then(() => res.json({ success: true }))
+      .catch(err => res.status(500).json({ error: err.message }));
+  } else {
+    const data = loadData();
+    data.blockedSlots = data.blockedSlots.filter(s => !(s.date === date && s.time === time));
+    saveData(data);
+    res.json({ success: true });
   }
-  const data = loadData();
-  data.blockedSlots = data.blockedSlots.filter(
-    (s) => !(s.date === date && s.time === time)
-  );
-  saveData(data);
-  res.json({ success: true });
 });
 
-// ── POST /twilio-webhook — Incoming SMS from clients (optional) ──────────────
+// POST /twilio-webhook — Incoming SMS
 app.post("/twilio-webhook", (req, res) => {
   const { From, Body } = req.body;
-  console.log(`📩 Incoming SMS from ${From}: ${Body}`);
-  // Forward to Don
-  sendSMS(DON_PHONE, `📩 SMS from ${From}:\n"${Body}"`);
+  console.log(`📱 Incoming SMS from ${From}: ${Body}`);
+  sendSMS(DON_PHONE, `📱 SMS from ${From}:\n"${Body}"`);
   const twiml = new twilio.twiml.MessagingResponse();
   res.type("text/xml").send(twiml.toString());
 });
 
-// ─── Start ────────────────────────────────────────────────────────────────────
+// — Start ————————————————————————————————————————————
 app.listen(PORT, () => {
-  console.log(`✂️  Shear Sharpening backend running on port ${PORT}`);
+  console.log(`✂ Shear Sharpening backend running on port ${PORT}`);
   console.log(`📱 Don's phone: ${DON_PHONE}`);
   console.log(`🌐 App URL: ${APP_URL}`);
 });
