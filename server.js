@@ -12,6 +12,14 @@ const twilio = require("twilio");
 const cors = require("cors");
 const fs = require("fs");
 const path = require("path");
+const nodemailer = require('nodemailer');
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: process.env.GMAIL_USER,
+    pass: process.env.GMAIL_PASS,
+  },
+});
 
 const app = express();
 app.use(express.json());
@@ -52,6 +60,19 @@ async function sendSMS(to, body) {
   } catch (err) {
     console.error(`❌ SMS failed to ${to}:`, err.message);
     return { success: false, error: err.message };
+  }
+}// — Email helper ————————————————————————————
+async function sendBookingEmail(appt) {
+  try {
+    await transporter.sendMail({
+      from: process.env.GMAIL_USER,
+      to: process.env.GMAIL_USER,
+      subject: `📬 New Booking – ${appt.name}`,
+      text: `NEW APPOINTMENT REQUEST\n\nClient: ${appt.name}\nPhone:  ${appt.phone}\nSalon:  ${appt.salon || 'Not given'}\nDate:   ${appt.date}\nTime:   ${appt.time} ET\nShears: ${appt.shears || 'Not specified'}\nNotes:  ${appt.notes || 'None'}\n\nApprove: ${appt.approveUrl}\nDecline: ${appt.declineUrl}`,
+    });
+    console.log('📧 Booking email sent.');
+  } catch (err) {
+    console.error('❌ Email failed:', err);
   }
 }
 
@@ -111,7 +132,8 @@ app.post("/appointments", async (req, res) => {
     `✅ APPROVE: ${approveUrl}\n` +
     `❌ DECLINE: ${declineUrl}`;
 
-  await sendSMS(DON_PHONE, donMsg);
+     await sendSMS(DON_PHONE, donMsg);
+await sendBookingEmail({ ...appointment, approveUrl, declineUrl });
 
   // 2️⃣ Text client to confirm receipt
   const clientMsg =
