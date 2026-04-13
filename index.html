@@ -487,6 +487,7 @@
   async function submitBooking() {
     const name  = document.getElementById('clientName').value.trim();
     const phone = document.getElementById('clientPhone').value.trim();
+    const clientEmail = document.getElementById('clientEmail').value.trim();
     const salonName = document.getElementById('salonName').value.trim();
     const salonAddress = document.getElementById('salonAddress').value.trim();
     const shearCount = document.getElementById('shearCount').value.trim();
@@ -505,7 +506,7 @@
       const res = await fetch('/appointments', {
         method: 'POST',
         headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({clientName:name, clientPhone:phone, salonName, salonAddress, shearCount, date, time, notes})
+       body: JSON.stringify({clientName:name, clientPhone:phone, clientEmail, salonName, salonAddress, shearCount, date, time, notes})
       });
       const data = await res.json();
       if (data.success) {
