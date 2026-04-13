@@ -16,8 +16,7 @@ const path = require("path");
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
-app.use(cors({ origin: '*' }));());
-
+app.use(cors({ origin: '*' }));
 // ─── Config ───────────────────────────────────────────────────────────────────
 const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID;
 const TWILIO_AUTH_TOKEN  = process.env.TWILIO_AUTH_TOKEN;
