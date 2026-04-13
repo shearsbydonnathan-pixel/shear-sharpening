@@ -81,7 +81,7 @@ async function sendBookingEmail(appt) {
   from: 'onboarding@resend.dev',
   to: process.env.GMAIL_USER,
   subject: `New Booking - ${appt.name}`,
-  ttext: `NEW APPOINTMENT REQUEST\n\nClient: ${appt.name}\nPhone: ${appt.phone}\nSalon: ${appt.salon}\nAddress: ${appt.salonAddress}\nDate: ${appt.date}\nTime: ${appt.time}`,
+  text: `NEW APPOINTMENT REQUEST\n\nClient: ${appt.name}\nPhone: ${appt.phone}\nSalon: ${appt.salon}\nAddress: ${appt.salonAddress}\nDate: ${appt.date}\nTime: ${appt.time}`,
 });
     console.log("📧 Booking email sent.");
   } catch (err) {
