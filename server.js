@@ -23,7 +23,7 @@ const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID;
 const TWILIO_AUTH_TOKEN  = process.env.TWILIO_AUTH_TOKEN;
 const TWILIO_PHONE       = process.env.TWILIO_PHONE;       // Your Twilio number e.g. +15551234567
 const DON_PHONE          = process.env.DON_PHONE || "+14436947625";
-const APP_URL            = process.env.APP_URL || "http://localhost:3001"; // Your deployed URL
+const APP_URL            = process.env.APP_URL ||  "https://empowering-surprise-production-d934.up.railway.app"
 const DATA_FILE          = path.join(__dirname, "appointments.json");
 const PORT               = process.env.PORT || 3001;
 
